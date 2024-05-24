@@ -1,6 +1,6 @@
 data:
     name: nr_simulation
-    data_dir: ../simulation_h5/
+    data_dir: simulation_h5
     splits: ["deformation_1", "deformation_2", "deformation_3"]
     batch_size: 32
     num_workers: 14
