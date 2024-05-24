@@ -110,5 +110,6 @@ class TwoViewPipeline(BaseModel):
                     continue
                 losses = {**losses, **losses_}
                 metrics = {**metrics, **metrics_}
+                
                 total = losses_["total"] + total
         return {**losses, "total": total}, metrics

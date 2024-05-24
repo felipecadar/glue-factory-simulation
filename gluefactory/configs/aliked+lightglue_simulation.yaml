@@ -1,0 +1,39 @@
+data:
+    name: nr_simulation
+    data_dir: ../simulation_h5/
+    splits: ["deformation_1", "deformation_2", "deformation_3"]
+    batch_size: 32
+    num_workers: 14
+model:
+    name: two_view_pipeline
+    extractor:
+        name: extractors.aliked
+        max_num_keypoints: 2048
+        detection_threshold: 0.0
+        trainable: False
+    matcher:
+        name: matchers.lightglue
+        filter_threshold: 0.1
+        flash: true
+        checkpointed: true
+        weights: aliked
+        input_dim: 128
+    ground_truth:
+        name: matchers.uv_matcher
+        gt_thresh: 300
+        pixel_thresh: 2
+    allow_no_extract: True
+train:
+    seed: 0
+    epochs: 50
+    log_every_iter: 100
+    eval_every_iter: 1000
+    lr: 1e-4
+    lr_schedule:
+        start: 30
+        type: exp
+        on_epoch: true
+        exp_div_10: 10
+    dataset_callback_fn: sample_new_items
+    plot: [5, 'gluefactory.visualization.visualize_batch.make_match_figures']
+
