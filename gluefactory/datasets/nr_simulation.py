@@ -42,12 +42,10 @@ def load_sample(rgb_path:Path):
 class NRSimulation(BaseDataset, torch.utils.data.Dataset):
     default_conf = {
         "data_dir": "../simulation_h5/",
-        "grayscale": False,
         "splits": ["deformation_1", "deformation_2", "deformation_3"],
     }
 
     def _init(self, conf):
-        assert conf.batch_size == 1
         self.root = DATA_PATH / conf.data_dir
         if not self.root.exists():
             logger.error("Dataset not found.")
@@ -62,7 +60,7 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
             self.items.extend(pairs[split])
     
     def get_dataset(self, split):
-        assert split in ["train"]
+        assert split in ["train", "val"], f"Invalid split. {split}"
         return self
 
     def load_sample(self, path):
@@ -72,17 +70,28 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
             'uv_coords': self.h5['uv_coords'][path][()],
             'segmentation': self.h5['segmentation'][path][()]
         }
-        data['image'] = torch.tensor(data['image']).permute(2, 0, 1)
+        data['image'] = torch.tensor(data['image']).permute(2, 0, 1).float() / 255
         return data
 
     def __getitem__(self, idx):
         path0, path1 = self.items[idx]
         sample0 = self.load_sample(path0)
         sample1 = self.load_sample(path1)
-        return {
-            "view0": sample0,
-            "view1": sample1,
+        data = {
+            "view0": {
+                "image": sample0["image"],
+            },
+            "view1": {
+                "image": sample1["image"],
+            }
         }
+        data.update({
+            key + "0": value for key, value in sample0.items() if key != "image"
+        })
+        data.update({
+            key + "1": value for key, value in sample1.items() if key != "image"
+        })
+        return data
 
     def __len__(self):
         return len(self.items)
