@@ -3,7 +3,8 @@ data:
     data_dir: simulation_h5
     splits: ["deformation_1", "deformation_2", "deformation_3"]
     batch_size: 32
-    num_workers: 14
+    num_workers: 0
+    prefetch_factor: None
 model:
     name: two_view_pipeline
     extractor:

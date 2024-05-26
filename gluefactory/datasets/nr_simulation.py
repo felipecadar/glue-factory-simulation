@@ -1,4 +1,3 @@
-
 """
 Simply load images from a folder or nested folders (does not have any split).
 """
@@ -36,13 +35,14 @@ def load_sample(rgb_path:Path):
     sample['mask'] = mask
     sample['uv_coords'] = uv_coords
     sample['segmentation'] = segmentation
-        
+
     return sample
 
 class NRSimulation(BaseDataset, torch.utils.data.Dataset):
     default_conf = {
         "data_dir": "../simulation_h5/",
         "splits": ["deformation_1", "deformation_2", "deformation_3"],
+        "mode": "train",
     }
 
     def _init(self, conf):
@@ -51,17 +51,29 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
             logger.error("Dataset not found.")
         self.h5 = h5py.File(self.root / "images.h5", "r")
         pairs = json.load(open(self.root / "selected_pairs.json", "r"))
-        
+        self.mode = self.conf.mode
         # filter by splits
         self.items = []
         for split in pairs:
             if split not in self.conf.splits:
                 continue
             self.items.extend(pairs[split])
-    
+
     def get_dataset(self, split):
         assert split in ["train", "val"], f"Invalid split. {split}"
-        return self
+
+        if split == "train":
+            return NRSimulation({
+                "mode": "train",
+               	"data_dir": self.conf.data_dir,
+               	"splits": self.conf.splits,
+            })
+        else:
+            return NRSimulation({
+                "mode": "val",
+                "data_dir": self.conf.data_dir,
+                "splits": self.conf.splits,
+            })
 
     def load_sample(self, path):
         data = {
@@ -94,7 +106,10 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
         return data
 
     def __len__(self):
-        return len(self.items)
+        if self.mode  == 'train':
+            return len(self.items)
+        else:
+            return 500
 
 def visualize(args):
     conf = {
@@ -155,7 +170,7 @@ def make_h5(root:Path, out:Path):
         sample = load_sample(root / path)
         for key, value in sample.items():
             h5[key].create_dataset(path, data=value)
-    
+
     h5.close()
 
 if __name__ == "__main__":
@@ -169,7 +184,7 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=Path, default="")
     parser.add_argument("dotlist", nargs="*")
     args = parser.parse_intermixed_args()
-    
+
     if args.make_h5:
         assert args.root.exists(), "Root does not exist."
         make_h5(args.root, args.out)
