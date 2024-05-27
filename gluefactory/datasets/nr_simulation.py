@@ -20,6 +20,8 @@ from .base_dataset import BaseDataset
 import h5py
 import json
 
+from functools import cache
+
 logger = logging.getLogger(__name__)
 
 def load_sample(rgb_path:Path):
@@ -49,7 +51,6 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
         self.root = DATA_PATH / conf.data_dir
         if not self.root.exists():
             logger.error("Dataset not found.")
-        self.h5 = h5py.File(self.root / "images.h5", "r")
         pairs = json.load(open(self.root / "selected_pairs.json", "r"))
         self.mode = self.conf.mode
         # filter by splits
@@ -75,7 +76,13 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
                 "splits": self.conf.splits,
             })
 
+    def get_h5(self):
+        return h5py.File(self.root / "images.h5", "r", libver='latest', swmr=True)
+
     def load_sample(self, path):
+        if not hasattr(self, 'h5'):
+            self.h5 = self.get_h5()
+    
         data = {
             'image': self.h5['image'][path][()],
             'mask': self.h5['mask'][path][()],
