@@ -19,7 +19,7 @@ from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
 import h5py
 import json
-
+import gc
 from functools import cache
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def load_sample(rgb_path:Path):
 
 class NRSimulation(BaseDataset, torch.utils.data.Dataset):
     default_conf = {
-        "data_dir": "../simulation_h5/",
+        "data_dir": "simulation_h5",
         "splits": ["deformation_1", "deformation_2", "deformation_3"],
         "mode": "train",
     }
@@ -80,14 +80,13 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
         return h5py.File(self.root / "images.h5", "r", libver='latest', swmr=True)
 
     def load_sample(self, path):
-        if not hasattr(self, 'h5'):
-            self.h5 = self.get_h5()
+        self.h5 = self.get_h5()
     
         data = {
-            'image': self.h5['image'][path][()],
-            'mask': self.h5['mask'][path][()],
-            'uv_coords': self.h5['uv_coords'][path][()],
-            'segmentation': self.h5['segmentation'][path][()]
+            'image': self.h5['image'][path][:],
+            'mask': self.h5['mask'][path][:],
+            'uv_coords': self.h5['uv_coords'][path][:],
+            'segmentation': self.h5['segmentation'][path][:]
         }
         data['image'] = torch.tensor(data['image']).permute(2, 0, 1).float() / 255
         return data
@@ -110,6 +109,7 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
         data.update({
             key + "1": value for key, value in sample1.items() if key != "image"
         })
+        self.h5.close()
         return data
 
     def __len__(self):
@@ -179,6 +179,27 @@ def make_h5(root:Path, out:Path):
             h5[key].create_dataset(path, data=value)
 
     h5.close()
+    
+def benchmark(args):
+    import time
+    from tqdm import tqdm
+    from torch.utils.data import DataLoader
+
+    conf = {
+        "batch_size": 32,
+        "num_workers": 8,
+        "prefetch_factor": 1,
+    }
+    conf = OmegaConf.merge(conf, OmegaConf.from_cli(args.dotlist))
+    dataset = NRSimulation(conf)
+    loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers)
+    logger.info("The dataset has %d elements.", len(loader))
+
+    start = time.time()
+    for data in tqdm(loader):
+        continue
+    logger.info("Time: %.2f", time.time() - start)
+    
 
 if __name__ == "__main__":
     from .. import logger  # overwrite the logger
@@ -187,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_items", type=int, default=8)
     parser.add_argument("--dpi", type=int, default=100)
     parser.add_argument("--make_h5", action="store_true", default=False)
+    parser.add_argument("--benchmark", action="store_true", default=False)
     parser.add_argument("--root", type=Path, default="")
     parser.add_argument("--out", type=Path, default="")
     parser.add_argument("dotlist", nargs="*")
@@ -195,5 +217,8 @@ if __name__ == "__main__":
     if args.make_h5:
         assert args.root.exists(), "Root does not exist."
         make_h5(args.root, args.out)
-
+    if args.benchmark:
+        benchmark(args)
+        exit()
+        
     visualize(args)
