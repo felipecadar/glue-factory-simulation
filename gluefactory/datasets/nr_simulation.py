@@ -36,6 +36,7 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
         "data_dir": LOCAL_DATA,
         "max_pairs": -1,
         "return_tensors": True,
+        "remove_background": True,
         "splits": [
             'illumination-viewpoint',
             'deformation_3',
@@ -68,6 +69,14 @@ class NRSimulation(BaseDataset, torch.utils.data.Dataset):
         # Build nested view dicts required by TwoViewPipeline.required_data_keys
         view0 = {"image": sample["image0"]}
         view1 = {"image": sample["image1"]}
+        
+        if self.conf.remove_background:
+            mask0 = sample.get("bgmask0")
+            mask1 = sample.get("bgmask1")
+            if mask0 is not None:
+                view0["image"] = view0["image"] * (mask0 > 0).float() 
+            if mask1 is not None:
+                view1["image"] = view1["image"] * (mask1 > 0).float()
 
         data = {
             "view0": view0,

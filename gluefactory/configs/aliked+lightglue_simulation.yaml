@@ -6,6 +6,7 @@ data:
     batch_size: 32
     num_workers: 0
     prefetch_factor: None
+    remove_backgroun: True
 model:
     name: two_view_pipeline
     extractor:
