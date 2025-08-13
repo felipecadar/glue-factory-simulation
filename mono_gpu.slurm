@@ -40,6 +40,6 @@ set -x
 # Pour la partition "gpu_p5", le code doit etre compile avec les modules compatibles
 # Execution du code
 nvidia-smi > gpu.txt
-python -m gluefactory.train aliked+lightglue_simulation --conf gluefactory/configs/aliked+lightglue_simulation.yaml data.batch_size=32  data.prefetch_factor=null
+uv run python -m gluefactory.train aliked+lightglue_simulation --conf gluefactory/configs/aliked+lightglue_simulation.yaml data.batch_size=32  data.prefetch_factor=null
 
 

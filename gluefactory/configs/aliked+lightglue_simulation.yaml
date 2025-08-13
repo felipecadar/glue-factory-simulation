@@ -1,7 +1,8 @@
 data:
     name: nr_simulation
-    data_dir: simulation_h5
-    splits: ["deformation_1", "deformation_2", "deformation_3"]
+    data_dir: /srv/storage/datasets/cadar/GSO/simulation/train_single_obj
+    splits: ['deformation_3']
+    # splits: ['illumination-viewpoint', 'deformation_3', 'deformation_3-illumination-viewpoint']
     batch_size: 32
     num_workers: 0
     prefetch_factor: None
