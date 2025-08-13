@@ -1,22 +1,23 @@
 data:
     name: nr_simulation
-    data_dir: /lustre/fsn1/projects/rech/xab/uus28wc/Datasets/train_single_obj/
+    data_dir: simulation_h5
     splits: ["deformation_1", "deformation_2", "deformation_3"]
     batch_size: 32
 model:
     name: two_view_pipeline
     extractor:
-        name: extractors.aliked
-        max_num_keypoints: 2048
+        name: gluefactory_nonfree.superpoint
+        max_num_keypoints: 512
+        force_num_keypoints: True
         detection_threshold: 0.0
+        nms_radius: 3
         trainable: False
     matcher:
         name: matchers.lightglue
         filter_threshold: 0.1
         flash: true
         checkpointed: true
-        weights: aliked
-        input_dim: 128
+        weights: superpoint
     ground_truth:
         name: matchers.uv_matcher
         gt_thresh: 300

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="GLUE"
+#SBATCH --job-name="SSDA"
 #SBATCH --mail-user=felipecadarchamone@gmail.com
 #SBATCH --mail-type=ALL
 #SBATCH --output="log_%j.out" # out file name
@@ -7,22 +7,22 @@
 #SBATCH --signal=USR1@60
 
 ### Use this for a 1x A100 node
-#SBATCH --time=20:00:00
-#SBATCH --account=xab@a100
-#SBATCH --gres=gpu:1
-#SBATCH --partition=gpu_p5
-#SBATCH -C a100
-#SBATCH --ntasks=1 # nbr of MPI tasks (= nbr of GPU)
-#SBATCH --ntasks-per-node=1 # nbr of task per node
-
-### Use this for a 1x H100 node
 ##SBATCH --time=20:00:00
-##SBATCH --account=xab@h100
+##SBATCH --account=xab@a100
 ##SBATCH --gres=gpu:1
-##SBATCH --partition=gpu_p6
-##SBATCH -C h100
+##SBATCH --partition=gpu_p5
+##SBATCH -C a100
 ##SBATCH --ntasks=1 # nbr of MPI tasks (= nbr of GPU)
 ##SBATCH --ntasks-per-node=1 # nbr of task per node
+
+### Use this for a 1x H100 node
+#SBATCH --time=20:00:00
+#SBATCH --account=xab@h100
+#SBATCH --gres=gpu:1
+#SBATCH --partition=gpu_p6
+#SBATCH -C h100
+#SBATCH --ntasks=1 # nbr of MPI tasks (= nbr of GPU)
+#SBATCH --ntasks-per-node=1 # nbr of task per node
 
 # Use this for a 1x V100 32G node
 ##SBATCH --time=20:00:00
@@ -41,7 +41,6 @@ echo "Job node list : $SLURM_JOB_NODELIST"
 echo '--------------------------------------'
 
 module purge
-SLURM_JOB_PARTITION="gpu_p5" # Default partition, change as needed
 
 if [[ $SLURM_JOB_PARTITION == "gpu_p5" ]]; then
     module load arch/a100
@@ -53,11 +52,10 @@ module load cuda/12.6.3
 module load miniforge/24.11.3
 conda deactivate
 
-ENVNAME="glue"
 if [[ $SLURM_JOB_PARTITION == "gpu_p5" ]]; then
-    ENVNAME="glue-a100"
+    ENVNAME="modetect-a100"
 elif [[ $SLURM_JOB_PARTITION == "gpu_p6" ]]; then
-    ENVNAME="glue-h100"
+    ENVNAME="modetect-h100"
 fi
 
 # check if conda environment exists
@@ -79,11 +77,8 @@ echo "Dataset path: $DATASET_PATH"
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 echo "Running training script..."
 
-# Echo des commandes lancees
-set -x
- 
-# Pour la partition "gpu_p5", le code doit etre compile avec les modules compatibles
-# Execution du code
-python -m gluefactory.train aliked+lightglue_simulation --conf gluefactory/configs/aliked+lightglue_simulation.yaml data.batch_size=32  data.prefetch_factor=null
-
+python src/modetect/train.py --data_path $DATASET_PATH \
+    --n_agents 6 \
+    --nkps 1024 \
+    --batch_size 4
 

@@ -1,0 +1,1 @@
+srun --ntasks=1 --cpus-per-task=40 --gres=gpu:1 --time=00:30:00 -C v100-32g --partition=gpu_p13 -A xab@v100 --pty bash

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="GLUE"
+#SBATCH --job-name="SSDA"
 #SBATCH --mail-user=felipecadarchamone@gmail.com
 #SBATCH --mail-type=ALL
 #SBATCH --output="log_%j.out" # out file name
@@ -41,7 +41,6 @@ echo "Job node list : $SLURM_JOB_NODELIST"
 echo '--------------------------------------'
 
 module purge
-SLURM_JOB_PARTITION="gpu_p5" # Default partition, change as needed
 
 if [[ $SLURM_JOB_PARTITION == "gpu_p5" ]]; then
     module load arch/a100
@@ -49,15 +48,16 @@ elif [[ $SLURM_JOB_PARTITION == "gpu_p6" ]]; then
     module load arch/h100
 fi
 
+
 module load cuda/12.6.3
 module load miniforge/24.11.3
 conda deactivate
+# conda activate modetect_a100
 
-ENVNAME="glue"
 if [[ $SLURM_JOB_PARTITION == "gpu_p5" ]]; then
-    ENVNAME="glue-a100"
+    ENVNAME="modetect-a100"
 elif [[ $SLURM_JOB_PARTITION == "gpu_p6" ]]; then
-    ENVNAME="glue-h100"
+    ENVNAME="modetect-h100"
 fi
 
 # check if conda environment exists
@@ -79,11 +79,8 @@ echo "Dataset path: $DATASET_PATH"
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 echo "Running training script..."
 
-# Echo des commandes lancees
-set -x
- 
-# Pour la partition "gpu_p5", le code doit etre compile avec les modules compatibles
-# Execution du code
-python -m gluefactory.train aliked+lightglue_simulation --conf gluefactory/configs/aliked+lightglue_simulation.yaml data.batch_size=32  data.prefetch_factor=null
-
+python src/modetect/train.py --data_path $DATASET_PATH \
+    --n_agents 4 \
+    --nkps 1024 \
+    --batch_size 4
 
