@@ -4,119 +4,99 @@ Simply load images from a folder or nested folders (does not have any split).
 
 import argparse
 import logging
-import tarfile
 from pathlib import Path
+import random
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from ..settings import DATA_PATH
-from ..utils.image import ImagePreprocessor, load_image
 from ..utils.tools import fork_rng
 from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
-import h5py
-import json
-import gc
-from functools import cache
+from .simulation import KubrickInstances
 
 logger = logging.getLogger(__name__)
 
-def load_sample(rgb_path:Path):
-    import cv2
-    rgb_path = cv2.imread(rgb_path)
-    image = cv2.imread(rgb_path)
-    mask = cv2.imread(rgb_path.replace('rgba', 'bgmask'), cv2.IMREAD_UNCHANGED)
-    uv_coords = cv2.imread(rgb_path.replace('rgba', 'uv'), cv2.IMREAD_UNCHANGED)
-    segmentation = cv2.imread(rgb_path.replace('rgba', 'segmentation'), cv2.IMREAD_UNCHANGED)
-
-    sample = {}
-    sample['image'] = image
-    sample['mask'] = mask
-    sample['uv_coords'] = uv_coords
-    sample['segmentation'] = segmentation
-
-    return sample
+LOCAL_DATA = '/srv/storage/datasets/cadar/GSO/simulation/train_single_obj'
 
 class NRSimulation(BaseDataset, torch.utils.data.Dataset):
+    """Wrapper dataset exposing KubrickInstances in GlueFactory format.
+
+    Adapts the flat output of KubrickInstances (image0, image1, segmentation0, ...)
+    into the expected structure with nested view0/view1 dictionaries so that
+    two_view_pipeline models (extractor/matcher) receive inputs as
+    data["view0"]["image"], data["view1"]["image"].
+    Also implements a sample_new_items callback for training configs that
+    request dynamic reshuffling each epoch.
+    """
+
     default_conf = {
-        "data_dir": "simulation_h5",
-        "splits": ["deformation_1", "deformation_2", "deformation_3"],
-        "mode": "train",
+        "name": "nr_simulation",  # overwrites base '???'
+        "data_dir": LOCAL_DATA,
+        "max_pairs": -1,
+        "return_tensors": True,
+        "remove_background": True,
+        "splits": [
+            'illumination-viewpoint',
+            'deformation_3',
+            'deformation_3-illumination-viewpoint',
+        ],
     }
 
     def _init(self, conf):
-        self.root = DATA_PATH / conf.data_dir
-        if not self.root.exists():
-            logger.error("Dataset not found.")
-        pairs = json.load(open(self.root / "selected_pairs.json", "r"))
-        self.mode = self.conf.mode
-        # filter by splits
-        self.items = []
-        for split in pairs:
-            if split not in self.conf.splits:
-                continue
-            self.items.extend(pairs[split])
+        # Build a plain python dict for the underlying raw dataset, stripping
+        # BaseDataset meta keys (like train_batch_size, num_workers, etc.) and
+        # avoiding unresolved mandatory placeholders ("???").
+        subconf_keys = ["data_dir", "max_pairs", "return_tensors", "splits"]
+        subconf = {k: OmegaConf.to_container(conf[k]) if isinstance(conf[k], (list, dict)) else conf[k]
+                   for k in subconf_keys if k in conf and conf[k] != "???"}
+        # Ensure splits is a plain list
+        if isinstance(subconf.get("splits"), tuple):
+            subconf["splits"] = list(subconf["splits"])
+        self.dataset = KubrickInstances(subconf)
 
-    def get_dataset(self, split):
-        assert split in ["train", "val"], f"Invalid split. {split}"
-
-        if split == "train":
-            return NRSimulation({
-                "mode": "train",
-               	"data_dir": self.conf.data_dir,
-               	"splits": self.conf.splits,
-            })
-        else:
-            return NRSimulation({
-                "mode": "val",
-                "data_dir": self.conf.data_dir,
-                "splits": self.conf.splits,
-            })
-
-    def get_h5(self):
-        return h5py.File(self.root / "images.h5", "r", libver='latest', swmr=True)
-
-    def load_sample(self, path):
-        self.h5 = self.get_h5()
-    
-        data = {
-            'image': self.h5['image'][path][:],
-            'mask': self.h5['mask'][path][:],
-            'uv_coords': self.h5['uv_coords'][path][:],
-            'segmentation': self.h5['segmentation'][path][:]
-        }
-        data['image'] = torch.tensor(data['image']).permute(2, 0, 1).float() / 255
-        return data
-
-    def __getitem__(self, idx):
-        path0, path1 = self.items[idx]
-        sample0 = self.load_sample(path0)
-        sample1 = self.load_sample(path1)
-        data = {
-            "view0": {
-                "image": sample0["image"],
-            },
-            "view1": {
-                "image": sample1["image"],
-            }
-        }
-        data.update({
-            key + "0": value for key, value in sample0.items() if key != "image"
-        })
-        data.update({
-            key + "1": value for key, value in sample1.items() if key != "image"
-        })
-        self.h5.close()
-        return data
+    # The training loop will call dataset.get_dataset(split)
+    def get_dataset(self, split):  # noqa: D401 (simple pass-through)
+        return self
 
     def __len__(self):
-        if self.mode  == 'train':
-            return len(self.items)
-        else:
-            return 500
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
+
+        # Build nested view dicts required by TwoViewPipeline.required_data_keys
+        view0 = {"image": sample["image0"]}
+        view1 = {"image": sample["image1"]}
+        
+        if self.conf.remove_background:
+            mask0 = sample.get("bgmask0")
+            mask1 = sample.get("bgmask1")
+            if mask0 is not None:
+                view0["image"] = view0["image"] * (mask0 > 0).float() 
+            if mask1 is not None:
+                view1["image"] = view1["image"] * (mask1 > 0).float()
+
+        data = {
+            "view0": view0,
+            "view1": view1,
+            # Keep auxiliary supervision signals at top-level for uv_matcher
+            "segmentation0": sample.get("segmentation0"),
+            "segmentation1": sample.get("segmentation1"),
+            "uv_coords0": sample.get("uv_coords0"),
+            "uv_coords1": sample.get("uv_coords1"),
+            "bgmask0": sample.get("bgmask0"),
+            "bgmask1": sample.get("bgmask1"),
+        }
+        # Optional name for logging/debugging
+        # (paths might be useful; we drop them here to reduce size)
+        return data
+
+    # Called if train.dataset_callback_fn == 'sample_new_items'
+    def sample_new_items(self, seed):
+        random.seed(seed)
+        random.shuffle(self.dataset.all_pairs)
 
 def visualize(args):
     conf = {
@@ -139,47 +119,6 @@ def visualize(args):
     plt.tight_layout()
     plt.savefig("nr_simulation.png")
 
-def write_sample(path:str, dataset_path:Path, h5:h5py.File):
-    sample = load_sample(dataset_path / path)
-    for key, value in sample.items():
-        h5[key].create_dataset(path, data=value)
-
-    return True
-
-def make_h5(root:Path, out:Path):
-    import json
-    from tqdm import tqdm
-
-    # make dir for out
-    out.mkdir(parents=True, exist_ok=True)
-    selected_json = root / "selected_pairs.json"
-
-    selected_pairs = json.load(open(selected_json))
-    json.dump(selected_pairs, open(out / "selected_pairs.json", "w"))
-
-    unique_images = set()
-    for split in selected_pairs.keys():
-        for pair in selected_pairs[split]:
-            for img in pair:
-                unique_images.add(img)
-    unique_images = list(unique_images)
-    print(f"Found {len(unique_images)} unique images.")
-
-    h5_file = out / "images.h5"
-    h5 = h5py.File(h5_file, "w")
-
-    h5.create_group("image")
-    h5.create_group("mask")
-    h5.create_group("uv_coords")
-    h5.create_group("segmentation")
-
-    for path in tqdm(unique_images):
-        sample = load_sample(root / path)
-        for key, value in sample.items():
-            h5[key].create_dataset(path, data=value)
-
-    h5.close()
-    
 def benchmark(args):
     import time
     from tqdm import tqdm
@@ -207,16 +146,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_items", type=int, default=8)
     parser.add_argument("--dpi", type=int, default=100)
-    parser.add_argument("--make_h5", action="store_true", default=False)
     parser.add_argument("--benchmark", action="store_true", default=False)
     parser.add_argument("--root", type=Path, default="")
     parser.add_argument("--out", type=Path, default="")
     parser.add_argument("dotlist", nargs="*")
     args = parser.parse_intermixed_args()
 
-    if args.make_h5:
-        assert args.root.exists(), "Root does not exist."
-        make_h5(args.root, args.out)
     if args.benchmark:
         benchmark(args)
         exit()
